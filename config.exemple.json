@@ -1,0 +1,39 @@
+{
+  "token": "",
+  "clientId": "",
+  "prefix": "!",
+  "color": "#1DB954",
+  "defaultVolume": 80,
+  "maxQueueSize": 1000,
+  "spotify": {
+    "clientId": "",
+    "clientSecret": ""
+  },
+  "ytdlOptions": {
+    "quality": "highestaudio",
+    "highWaterMark": 134217728,
+    "dlChunkSize": 0,
+    "liveBuffer": 60000,
+    "filter": "audioonly",
+    "requestOptions": {
+      "headers": {
+        "Cookie": "highQuality=true;high_quality=true",
+        "X-YouTube-Client-Name": "1",
+        "X-YouTube-Client-Version": "2.20220101.00.00"
+      }
+    }
+  },
+  "player": {
+    "leaveOnEmpty": true,
+    "leaveOnEmptyCooldown": 300000,
+    "leaveOnEnd": true,
+    "leaveOnEndCooldown": 300000,
+    "bufferingTimeout": 60000,
+    "connectionTimeout": 30000
+  },
+  "audioSettings": {
+    "normalizer": true,
+    "normalizeVolume": true,
+    "smoothTransition": true
+  }
+}
