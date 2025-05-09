@@ -1,7 +1,21 @@
 /**
- * Module de journalisation pour le bot Discord
- * Permet une gestion centralisée des logs avec horodatage et niveaux de sévérité
+ * Système de logging avancé pour le bot Discord de musique
+ * Supporte plusieurs niveaux, fichiers de logs et formatage
  */
+
+const fs = require('fs');
+const path = require('path');
+const { createWriteStream } = require('fs');
+
+// Créer le dossier de logs s'il n'existe pas
+const logsDir = path.join(__dirname, '../logs');
+if (!fs.existsSync(logsDir)) {
+  try {
+    fs.mkdirSync(logsDir, { recursive: true });
+  } catch (error) {
+    console.error(`Impossible de créer le dossier de logs: ${error.message}`);
+  }
+}
 
 // Couleurs pour les différents niveaux de log (pour la console)
 const colors = {
@@ -15,31 +29,45 @@ const colors = {
   cyan: '\x1b[36m'
 };
 
-// Niveaux de log avec leurs couleurs associées
+// Niveaux de log avec leurs informations associées
 const levels = {
-  ERROR: { color: colors.red, emoji: '❌' },
-  WARN: { color: colors.yellow, emoji: '⚠️' },
-  INFO: { color: colors.green, emoji: 'ℹ️' },
-  DEBUG: { color: colors.cyan, emoji: '🔍' },
-  MUSIC: { color: colors.magenta, emoji: '🎵' }
+  error: { value: 0, color: colors.red, emoji: '❌', label: 'ERROR' },
+  warn: { value: 1, color: colors.yellow, emoji: '⚠️', label: 'WARN' },
+  info: { value: 2, color: colors.green, emoji: 'ℹ️', label: 'INFO' },
+  debug: { value: 3, color: colors.cyan, emoji: '🔍', label: 'DEBUG' },
+  music: { value: 2, color: colors.magenta, emoji: '🎵', label: 'MUSIC' }
 };
+
+// Créer un fichier de log pour chaque niveau
+const streams = {};
+Object.keys(levels).forEach(level => {
+  const date = new Date();
+  const today = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const logFile = path.join(logsDir, `${level}-${today}.log`);
+  
+  try {
+    streams[level] = createWriteStream(logFile, { flags: 'a' });
+  } catch (error) {
+    console.error(`Erreur lors de la création du fichier de log ${level}: ${error.message}`);
+  }
+});
 
 /**
  * Génère un message de log formaté
- * @param {string} level - Niveau de log (ERROR, WARN, INFO, DEBUG, MUSIC)
+ * @param {string} level - Niveau de log
  * @param {string} message - Message à logger
  * @param {Error|Object} [details] - Détails optionnels (erreur ou objet)
  */
 function log(level, message, details = null) {
-  if (!levels[level]) level = 'INFO';
+  if (!levels[level]) level = 'info';
   
   const timestamp = new Date().toISOString();
-  const { color, emoji } = levels[level];
+  const { color, emoji, label } = levels[level];
   
   // Format du message console
-  const consoleMessage = `${color}${colors.bright}[${timestamp}] ${level}${colors.reset}${color} ${emoji} ${message}${colors.reset}`;
+  const consoleMessage = `${color}${colors.bright}[${timestamp}] ${label}${colors.reset}${color} ${emoji} ${message}${colors.reset}`;
   
-  // Affichage du message
+  // Affichage du message dans la console
   console.log(consoleMessage);
   
   // Affichage des détails si présents
@@ -51,14 +79,38 @@ function log(level, message, details = null) {
     }
   }
 
-  // On pourrait également enregistrer les logs dans un fichier si nécessaire
+  // Écrire dans le fichier de log si disponible
+  if (streams[level]) {
+    const logEntry = `[${timestamp}] ${label} ${emoji} ${message}`;
+    streams[level].write(logEntry + '\n');
+    
+    if (details) {
+      const detailsStr = details instanceof Error 
+        ? details.stack || details.toString()
+        : JSON.stringify(details, null, 2);
+      streams[level].write(detailsStr + '\n');
+    }
+  }
 }
 
-// Fonctions d'aide pour chaque niveau de log
-module.exports = {
-  error: (message, details = null) => log('ERROR', message, details),
-  warn: (message, details = null) => log('WARN', message, details),
-  info: (message, details = null) => log('INFO', message, details),
-  debug: (message, details = null) => log('DEBUG', message, details),
-  music: (message, details = null) => log('MUSIC', message, details)
+// Créer des fonctions pour chaque niveau de log
+const logger = {};
+Object.keys(levels).forEach(level => {
+  logger[level] = (message, details = null) => log(level, message, details);
+});
+
+// Fonction pour fermer tous les streams
+logger.close = () => {
+  Object.values(streams).forEach(stream => {
+    if (stream && typeof stream.end === 'function') {
+      stream.end();
+    }
+  });
 };
+
+// Gérer la fermeture propre
+process.on('exit', () => {
+  logger.close();
+});
+
+module.exports = logger;

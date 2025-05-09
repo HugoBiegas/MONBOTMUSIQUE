@@ -4,8 +4,6 @@
  */
 
 const { PermissionFlagsBits } = require('discord.js');
-const { searchYouTube, createYouTubeQueue, calculateTotalDuration } = require('../utils/youtubeManager');
-const { searchSpotify, createSpotifyQueue, formatDuration } = require('../utils/spotifyManager');
 const logger = require('../utils/logger');
 const config = require('../config.json');
 
@@ -34,90 +32,59 @@ module.exports = {
       const isSpotify = query.includes('spotify.com');
       const sourceType = isSpotify ? 'Spotify' : 'YouTube';
       
-      logger.info(`Recherche ${sourceType}: "${query}" demandée par ${message.author.tag}`);
+      logger.info(`Recherche ${sourceType}: "${query}" demandée par ${message.author.tag} dans ${message.guild.name}`);
       loadingMsg.edit(`🔍 Recherche ${sourceType} en cours...`);
       
-      // Effectuer la recherche selon la source
-      const searchResult = isSpotify 
-        ? await searchSpotify(query, message.client.player, message.author)
-        : await searchYouTube(query, message.client.player, message.author);
+      // Accéder au player à travers client pour compatibilité
+      const player = message.client.player;
       
-      if (!searchResult.success) {
-        loadingMsg.edit(searchResult.message);
-        return;
+      if (!player) {
+        return loadingMsg.edit('❌ Erreur interne: le lecteur audio n\'est pas initialisé');
       }
       
-      // Pour débogage - afficher plus d'informations sur les pistes trouvées
-      const { result } = searchResult;
-      logger.debug(`Pistes trouvées: ${result.tracks.length}` + 
-                  (result.playlist ? ` dans la playlist "${result.playlist.title}"` : ''));
-      
-      // Vérifier si les pistes ont des URLs valides
-      if (result.tracks.length > 0) {
-        logger.debug(`Première piste: ${result.tracks[0].title}, URL: ${result.tracks[0].url || 'Non définie'}`);
-      }
-      
-      // Création ou récupération de la file d'attente selon la source
-      const queue = isSpotify
-        ? createSpotifyQueue(message.client.player, message.guild, {
-            channel: message.channel,
-            client: message.client,
-            requestedBy: message.author
-          })
-        : createYouTubeQueue(message.client.player, message.guild, {
-            channel: message.channel,
-            client: message.client,
-            requestedBy: message.author
-          });
-
       try {
-        // Connexion au canal vocal si nécessaire
-        if (!queue.connection) {
-          await queue.connect(voiceChannel);
-          logger.music(`Connecté au canal vocal "${voiceChannel.name}" dans ${message.guild.name}`);
+        // Nouvelle API v7: player.play pour jouer directement à partir d'un query
+        const { track, queue } = await player.play(voiceChannel, query, {
+          nodeOptions: {
+            // Volume initial et métadonnées
+            volume: config.defaultVolume || 70,
+            metadata: {
+              channel: message.channel,
+              client: message.client,
+              requestedBy: message.author
+            },
+            // Options de comportement
+            leaveOnEmpty: config.player.leaveOnEmpty,
+            leaveOnEmptyCooldown: config.player.leaveOnEmptyCooldown,
+            leaveOnEnd: config.player.leaveOnEnd,
+            leaveOnEndCooldown: config.player.leaveOnEndCooldown,
+            // Options audio
+            bufferingTimeout: config.player.bufferingTimeout,
+            spotifyBridge: true,
+            skipOnNoStream: true
+          },
+          searchEngine: isSpotify ? 'spotifySearch' : 'auto'
+        });
+        
+        // Message de confirmation basé sur si c'est une playlist ou non
+        if (track.playlist) {
+          const trackCount = track.playlist.tracks.length;
+          const totalDuration = calculateTotalDuration(track.playlist.tracks);
+          const formattedDuration = formatDuration(totalDuration);
+          
+          loadingMsg.edit(`✅ **${trackCount} morceaux** de la playlist **${track.playlist.title}** (${sourceType}) ont été ajoutés à la file d'attente!\n⏱️ Durée totale: **${formattedDuration}**`);
+        } else {
+          const trackDuration = formatDuration(track.duration);
+          loadingMsg.edit(`✅ **${track.title}** (${sourceType} • ${trackDuration}) a été ajouté à la file d'attente!`);
         }
+        
+        logger.music(`Lecture démarrée dans ${message.guild.name} (Source: ${sourceType})`);
       } catch (error) {
-        message.client.player.nodes.delete(message.guild.id);
-        loadingMsg.edit(`❌ Impossible de rejoindre le canal vocal: ${error.message}`);
-        logger.error(`Erreur lors de la connexion au canal vocal`, error);
-        return;
+        logger.error(`Erreur lors de la recherche/lecture "${query}"`, error);
+        loadingMsg.edit(`❌ Erreur lors de la recherche/lecture: ${error.message}`);
       }
-
-      // Mise à jour du message selon le type de résultat
-      if (result.playlist) {
-        // Playlist détectée
-        queue.addTrack(result.tracks);
-        
-        // Calculer les informations de la playlist
-        const trackCount = result.tracks.length;
-        const totalDuration = formatDuration(calculateTotalDuration(result.tracks));
-        const playlistSource = isSpotify ? 'Spotify' : 'YouTube';
-        
-        loadingMsg.edit(`✅ **${trackCount} morceaux** de la playlist **${result.playlist.title}** (${playlistSource}) ont été ajoutés à la file d'attente!\n⏱️ Durée totale: **${totalDuration}**`);
-      } else {
-        // Piste unique
-        const track = result.tracks[0];
-        queue.addTrack(track);
-        
-        const trackSource = isSpotify ? 'Spotify' : 'YouTube';
-        const trackDuration = formatDuration(track.duration);
-        
-        loadingMsg.edit(`✅ **${track.title}** (${trackSource} • ${trackDuration}) a été ajouté à la file d'attente!`);
-      }
-
-      // Lancer la lecture si nécessaire
-      if (!queue.node.isPlaying()) {
-        try {
-          await queue.node.play();
-          logger.music(`Lecture démarrée dans ${message.guild.name} (Source: ${sourceType})`);
-        } catch (playError) {
-          logger.error(`Erreur lors du démarrage de la lecture`, playError);
-          loadingMsg.edit(`❌ Erreur lors du démarrage de la lecture: ${playError.message}`);
-        }
-      }
-
     } catch (error) {
-      logger.error(`Erreur lors de la commande play`, error);
+      logger.error(`Erreur lors de la commande play dans ${message.guild.name}`, error);
       loadingMsg.edit(`❌ Une erreur s'est produite: ${error.message}`);
     }
   }
@@ -144,4 +111,26 @@ async function verifyVoiceChannelPermissions(message, voiceChannel) {
   }
 
   return true;
+}
+
+/**
+ * Calcule la durée totale d'une liste de pistes
+ * @param {Array<Track>} tracks - Liste des pistes
+ * @returns {number} Durée totale en millisecondes
+ */
+function calculateTotalDuration(tracks) {
+  if (!tracks || !Array.isArray(tracks)) return 0;
+  return tracks.reduce((total, track) => total + (track.duration || 0), 0);
+}
+
+/**
+ * Formate le temps en millisecondes en format lisible (mm:ss)
+ * @param {number} ms - Temps en millisecondes
+ * @returns {string} Temps formaté
+ */
+function formatDuration(ms) {
+  if (!ms || isNaN(ms)) return '0:00';
+  const minutes = Math.floor(ms / 60000);
+  const seconds = ((ms % 60000) / 1000).toFixed(0);
+  return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }

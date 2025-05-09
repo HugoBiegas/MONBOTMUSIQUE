@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "update-extractors": "npm install @discord-player/extractor"
+    "update-extractors": "npm install @discord-player/extractor@latest"
   },
   "keywords": [
     "discord",
@@ -29,9 +29,7 @@
     "mediaplex": "^1.0.0",
     "play-dl": "^1.9.7",
     "prism-media": "^1.3.5",
-    "sodium-native": "^4.3.3",
-    "spotify-url-info": "^3.2.18",
-    "youtube-ext": "^1.1.25"
+    "sodium-native": "^4.3.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

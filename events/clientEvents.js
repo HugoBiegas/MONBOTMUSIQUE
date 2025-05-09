@@ -1,6 +1,6 @@
 /**
  * Gestionnaire centralisé des événements du client Discord
- * Sépare la logique des événements du fichier principal
+ * Utilise le nouveau système de logging pour une meilleure traçabilité
  */
 
 const { ActivityType } = require('discord.js');
@@ -28,6 +28,14 @@ function registerClientEvents(client, config) {
     // Ignorer les messages des bots et ceux qui ne commencent pas par le préfixe
     if (message.author.bot || !message.content.startsWith(config.prefix)) return;
 
+    // Vérifier que client.commands existe
+    if (!client.commands) {
+      logger.error('La collection de commandes n\'est pas initialisée dans le client');
+      return message.reply('❌ Erreur interne: commandes non disponibles').catch(err => {
+        logger.error('Impossible d\'envoyer le message d\'erreur', err);
+      });
+    }
+
     // Extraction du nom de commande et des arguments
     const args = message.content.slice(config.prefix.length).trim().split(/ +/);
     const commandName = args.shift().toLowerCase();
@@ -36,13 +44,22 @@ function registerClientEvents(client, config) {
     const command = client.commands.get(commandName);
     if (!command) return;
 
-    // Exécution de la commande
+    // Exécution de la commande avec contexte du player si nécessaire
     try {
       logger.info(`Commande '${commandName}' exécutée par ${message.author.tag} dans ${message.guild.name}`);
-      command.execute(message, args);
+      
+      if (client.player && typeof client.player.context?.provide === 'function') {
+        // Si disponible, exécuter la commande dans le contexte du player pour un meilleur support des hooks
+        await client.player.context.provide({ guild: message.guild }, () => command.execute(message, args));
+      } else {
+        // Fallback sur l'exécution directe
+        await command.execute(message, args);
+      }
     } catch (error) {
       logger.error(`Erreur lors de l'exécution de la commande '${commandName}'`, error);
-      message.reply('❌ Une erreur s\'est produite lors de l\'exécution de cette commande !').catch(console.error);
+      message.reply('❌ Une erreur s\'est produite lors de l\'exécution de cette commande !').catch(err => {
+        logger.error('Erreur lors de l\'envoi du message d\'erreur', err);
+      });
     }
   });
 
